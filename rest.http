@@ -1,1 +1,11 @@
+### get all recorded requests
 GET http://localhost:8080/recordedRequests
+
+### add some mocks
+GET http://localhost:8080/addMock HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{"outboundRequest":{"method":"GET","url":"http://flowers.com/get","header":{"Host":["flowers.com"],"Content-Type": ["application/json"]},"body": "{\"name\": \"rose\"}"},"outboundRequestResponse": {"statusCode": 200,"body":"{\"name\": \"rose\",\"color\": \"red\"}","header": {"Content-Type": ["application/json"]}}}
+### get all mocks
+GET http://localhost:8080/mocks HTTP/1.1
