@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	req, err := http.NewRequest(http.MethodGet, "http://betfair:8080", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://flowers.com/get", nil)
 	if err != nil {
 		fmt.Printf("client: could not create request: %s\n", err)
 		os.Exit(1)

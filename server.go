@@ -37,15 +37,25 @@ func (s *State) saveRequest(r RecordedRequest) {
 
 func buildProxyHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Del("Proxy-Connection")
-
 		fmt.Printf("proxy: %s %s\n", r.Method, r.URL.String())
+
+		r.Header.Del("Proxy-Connection")
 
 		requestBody, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Fatalf("Failed to read request body: %v", err)
 		}
 		fmt.Printf("request body %s\n", requestBody)
+
+        for _, mock := range state.mocks {
+            if mock.OutboundRequest.Method == r.Method && mock.OutboundRequest.URL == r.URL.String() /* && mock.OutboundRequest.Body == string(requestBody) */ /* && mock.OutboundRequest.Header == r.Header */ {
+                fmt.Printf("mock found for %s %s\n", r.Method, r.URL.String())
+                w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(mock.OutboundRequestResponse.StatusCode)
+                fmt.Fprintf(w, "%v", mock.OutboundRequestResponse.Body)
+                return
+            }
+        }
 
 		resp, err := http.DefaultTransport.RoundTrip(r)
 		if err != nil {
@@ -153,7 +163,6 @@ func main() {
 	http.HandleFunc("/recordedRequests", buildRecordedRequestsHandler(state))
 	http.HandleFunc("/", buildProxyHandler(state))
 
-	log.Println("Starting proxy server on :8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatalf("ListenAndServe: %v", err)
