@@ -8,27 +8,34 @@ import (
 	"net/http"
 )
 
-type OutboundRequest struct {
+type Request struct {
 	Method string              `json:"method"`
 	URL    string              `json:"url"`
 	Header map[string][]string `json:"header"`
 	Body   string              `json:"body"`
 }
 
-type OutboundRequestResponse struct {
+type Response struct {
 	StatusCode int                 `json:"statusCode"`
 	Header     map[string][]string `json:"header"`
 	Body       string              `json:"body"`
 }
 
 type RecordedRequest struct {
-	OutboundRequest         OutboundRequest         `json:"outboundRequest"`
-	OutboundRequestResponse OutboundRequestResponse `json:"outboundRequestResponse"`
+	Request  Request  `json:"request"`
+	Response Response `json:"response"`
+}
+
+type Mock struct {
+	Id       string   `json:"id"`
+	Request  Request  `json:"request"`
+	Response Response `json:"response"`
 }
 
 type State struct {
 	recordedRequests []RecordedRequest
-	mocks            []RecordedRequest
+	mocks            []Mock
+	mocksCount       int
 }
 
 func (s *State) saveRequest(r RecordedRequest) {
@@ -47,26 +54,26 @@ func buildProxyHandler(state *State) http.HandlerFunc {
 		}
 		fmt.Printf("request body %s\n", requestBody)
 
-        for _, mock := range state.mocks {
-            if mock.OutboundRequest.Method == r.Method && mock.OutboundRequest.URL == r.URL.String() /* && mock.OutboundRequest.Body == string(requestBody) */ /* && mock.OutboundRequest.Header == r.Header */ {
-                fmt.Printf("mock found for %s %s\n", r.Method, r.URL.String())
-                w.Header().Set("Content-Type", "application/json")
-                w.WriteHeader(mock.OutboundRequestResponse.StatusCode)
-                fmt.Fprintf(w, "%v", mock.OutboundRequestResponse.Body)
-                return
-            }
-        }
+		for _, mock := range state.mocks {
+			if mock.Request.Method == r.Method && mock.Request.URL == r.URL.String() /* && mock.OutboundRequest.Body == string(requestBody) */ /* && mock.OutboundRequest.Header == r.Header */ {
+				fmt.Printf("mock found for %s %s\n", r.Method, r.URL.String())
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(mock.Response.StatusCode)
+				fmt.Fprintf(w, "%v", mock.Response.Body)
+				return
+			}
+		}
 
 		resp, err := http.DefaultTransport.RoundTrip(r)
 		if err != nil {
 			state.saveRequest(RecordedRequest{
-				OutboundRequest: OutboundRequest{
+				Request: Request{
 					Method: r.Method,
 					URL:    r.URL.String(),
 					Header: r.Header,
 					Body:   string(requestBody),
 				},
-				OutboundRequestResponse: OutboundRequestResponse{
+				Response: Response{
 					StatusCode: -1,
 					Header:     nil,
 					Body:       "",
@@ -87,13 +94,13 @@ func buildProxyHandler(state *State) http.HandlerFunc {
 			log.Fatalf("Failed to read response body: %v", err)
 		}
 		state.saveRequest(RecordedRequest{
-			OutboundRequest: OutboundRequest{
+			Request: Request{
 				Method: r.Method,
 				URL:    r.URL.String(),
 				Header: r.Header,
 				Body:   string(requestBody),
 			},
-			OutboundRequestResponse: OutboundRequestResponse{
+			Response: Response{
 				StatusCode: resp.StatusCode,
 				Header:     resp.Header,
 				Body:       string(responseBody),
@@ -118,30 +125,30 @@ func buildAddMockHandler(state *State) http.HandlerFunc {
 		}
 		fmt.Printf("\n\nadding mock request body\n %s\n\n", requestBody)
 
-		var recordedRequest RecordedRequest
-		err = json.Unmarshal(requestBody, &recordedRequest)
+		var mock Mock
+		err = json.Unmarshal(requestBody, &mock)
 		if err != nil {
 			panic(err)
 		}
 
-		state.mocks = append(state.mocks, recordedRequest)
-
-        toReturn, err := json.Marshal(recordedRequest)
-        if err != nil {
-            panic(err)
-        }
+		toReturn, err := json.Marshal(mock)
+		if err != nil {
+			panic(err)
+		}
 
 		fmt.Printf("\n\nadded mock request body\n %s\n\n", string(toReturn))
+
+		state.mocks = append(state.mocks, mock)
 		fmt.Fprintf(w, "%v", string(toReturn))
 	}
 }
 
 func buildMocksHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-        toReturn, err := json.Marshal(state.mocks)
-        if err != nil {
-            panic(err)
-        }
+		toReturn, err := json.Marshal(state.mocks)
+		if err != nil {
+			panic(err)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, "%v", string(toReturn))
 	}
@@ -150,8 +157,13 @@ func buildMocksHandler(state *State) http.HandlerFunc {
 func buildRecordedRequestsHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("recordedRequests")
-		fmt.Println(state)
-		fmt.Fprintf(w, "Current recorded requests in state: %v", state.recordedRequests)
+		toReturn, err := json.Marshal(state.recordedRequests)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(toReturn)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "%v", string(toReturn))
 	}
 }
 
@@ -163,6 +175,7 @@ func main() {
 	http.HandleFunc("/recordedRequests", buildRecordedRequestsHandler(state))
 	http.HandleFunc("/", buildProxyHandler(state))
 
+	fmt.Println("listening 808")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatalf("ListenAndServe: %v", err)
