@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"reflect"
 )
 
 type Request struct {
@@ -44,24 +45,32 @@ func (s *State) saveRequest(r RecordedRequest) {
 
 func buildProxyHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("proxy: %s %s\n", r.Method, r.URL.String())
-
 		r.Header.Del("Proxy-Connection")
 
-		requestBody, err := io.ReadAll(r.Body)
+		requestBodyByteArray, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Fatalf("Failed to read request body: %v", err)
 		}
-		fmt.Printf("request body %s\n", requestBody)
+        requestBody := string(requestBodyByteArray)
 
 		for _, mock := range state.mocks {
-			if mock.Request.Method == r.Method && mock.Request.URL == r.URL.String() /* && mock.OutboundRequest.Body == string(requestBody) */ /* && mock.OutboundRequest.Header == r.Header */ {
-				fmt.Printf("mock found for %s %s\n", r.Method, r.URL.String())
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(mock.Response.StatusCode)
-				fmt.Fprintf(w, "%v", mock.Response.Body)
-				return
+			if mock.Request.Method != r.Method {
+				continue
 			}
+			if mock.Request.URL != r.URL.String() {
+				continue
+			}
+			if !reflect.DeepEqual(mock.Request.Header, r.Header) {
+				continue
+			}
+			if mock.Request.Body != string(requestBody) {
+				continue
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(mock.Response.StatusCode)
+			fmt.Fprintf(w, "%v", mock.Response.Body)
+			return
 		}
 
 		resp, err := http.DefaultTransport.RoundTrip(r)
@@ -175,7 +184,7 @@ func main() {
 	http.HandleFunc("/recordedRequests", buildRecordedRequestsHandler(state))
 	http.HandleFunc("/", buildProxyHandler(state))
 
-	fmt.Println("listening 808")
+	fmt.Println("listening 8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatalf("ListenAndServe: %v", err)
