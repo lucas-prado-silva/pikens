@@ -45,13 +45,14 @@ func (s *State) saveRequest(r RecordedRequest) {
 
 func buildProxyHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// TODO: check header existence to decide proxy vs fail
 		r.Header.Del("Proxy-Connection")
 
 		requestBodyByteArray, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Fatalf("Failed to read request body: %v", err)
 		}
-        requestBody := string(requestBodyByteArray)
+		requestBody := string(requestBodyByteArray)
 
 		for _, mock := range state.mocks {
 			if mock.Request.Method != r.Method {
@@ -130,25 +131,21 @@ func buildAddMockHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		requestBody, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Fatalf("Failed to read request body: %v", err)
+			fmt.Fprintf(w, "Failed to read request body: %v", err)
+			return
 		}
-		fmt.Printf("\n\nadding mock request body\n %s\n\n", requestBody)
 
 		var mock Mock
 		err = json.Unmarshal(requestBody, &mock)
 		if err != nil {
-			panic(err)
+			fmt.Fprintf(w, "Failed to unmarshal request body: %v", err)
+			return
 		}
-
-		toReturn, err := json.Marshal(mock)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Printf("\n\nadded mock request body\n %s\n\n", string(toReturn))
 
 		state.mocks = append(state.mocks, mock)
-		fmt.Fprintf(w, "%v", string(toReturn))
+		log.Println("Added mock", mock.Id, "to state")
+
+		w.WriteHeader(200);
 	}
 }
 
@@ -156,7 +153,9 @@ func buildMocksHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		toReturn, err := json.Marshal(state.mocks)
 		if err != nil {
-			panic(err)
+			w.WriteHeader(500)
+			fmt.Fprintf(w, "Failed to marshal response: %v", err)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, "%v", string(toReturn))
@@ -165,23 +164,26 @@ func buildMocksHandler(state *State) http.HandlerFunc {
 
 func buildRecordedRequestsHandler(state *State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("recordedRequests")
 		toReturn, err := json.Marshal(state.recordedRequests)
 		if err != nil {
-			panic(err)
+			w.WriteHeader(500)
+			fmt.Fprintf(w, "Failed to marshal response: %v", err)
+			return
 		}
-		fmt.Println(toReturn)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, "%v", string(toReturn))
 	}
 }
 
 func main() {
-	state := &State{}
+	state := &State{
+		mocksCount: 0,
+		mocks:      []Mock{},
+	}
 
-	http.HandleFunc("/addMock", buildAddMockHandler(state))
-	http.HandleFunc("/mocks", buildMocksHandler(state))
-	http.HandleFunc("/recordedRequests", buildRecordedRequestsHandler(state))
+	http.HandleFunc("POST /addMock", buildAddMockHandler(state))
+	http.HandleFunc("GET /mocks", buildMocksHandler(state))
+	http.HandleFunc("GET /recordedRequests", buildRecordedRequestsHandler(state))
 	http.HandleFunc("/", buildProxyHandler(state))
 
 	fmt.Println("listening 8080")
